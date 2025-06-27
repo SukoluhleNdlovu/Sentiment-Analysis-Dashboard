@@ -3,8 +3,3 @@ requests==2.31.0
 pandas==2.0.3
 plotly==5.17.0
 numpy==1.24.3
-transformers>=4.21.0
-torch>=1.12.0
-scikit-learn>=1.1.0
-nltk>=3.7
-textblob>=0.17.1
