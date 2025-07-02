@@ -81,27 +81,45 @@ class EnhancedSentimentAnalyzer:
         self.model_info = {}
     
     def normalize_sentiment_labels(self, label):
-        """Normalize different sentiment label formats to standard format"""
+        """Improved sentiment label normalization with better pattern matching"""
+        if not label or not isinstance(label, str):
+            return 'neutral'
+        
         label = label.upper().strip()
         
-        # Handle different label formats
-        positive_indicators = ['POSITIVE', 'POS', 'LABEL_1', '1', 'GOOD', 'HAPPY', 'JOY']
-        negative_indicators = ['NEGATIVE', 'NEG', 'LABEL_0', '0', 'BAD', 'SAD', 'ANGER']
-        neutral_indicators = ['NEUTRAL', 'NEU', 'LABEL_2', '2', 'MIXED', 'OBJECTIVE']
+        # More comprehensive label mapping
+        label_mappings = {
+            # Standard positive labels
+            'POSITIVE': 'positive', 'POS': 'positive', 'LABEL_1': 'positive', 
+            'LABEL_POSITIVE': 'positive', '1': 'positive', 'GOOD': 'positive',
+            
+            # Standard negative labels  
+            'NEGATIVE': 'negative', 'NEG': 'negative', 'LABEL_0': 'negative',
+            'LABEL_NEGATIVE': 'negative', '0': 'negative', 'BAD': 'negative',
+            
+            # Standard neutral labels
+            'NEUTRAL': 'neutral', 'NEU': 'neutral', 'LABEL_2': 'neutral',
+            'LABEL_NEUTRAL': 'neutral', '2': 'neutral', 'MIXED': 'neutral',
+            
+            # Emotion-based labels (map to sentiment)
+            'JOY': 'positive', 'HAPPINESS': 'positive', 'LOVE': 'positive',
+            'ANGER': 'negative', 'SADNESS': 'negative', 'FEAR': 'negative',
+            'DISGUST': 'negative', 'SURPRISE': 'neutral', 'TRUST': 'positive'
+        }
         
-        for indicator in positive_indicators:
-            if indicator in label:
-                return 'positive'
+        # Direct mapping first
+        if label in label_mappings:
+            return label_mappings[label]
         
-        for indicator in negative_indicators:
-            if indicator in label:
-                return 'negative'
+        # Pattern-based matching for complex labels
+        if any(pos in label for pos in ['POS', 'GOOD', 'HAPPY', 'JOY', 'LOVE']):
+            return 'positive'
+        elif any(neg in label for neg in ['NEG', 'BAD', 'SAD', 'ANGER', 'HATE', 'FEAR']):
+            return 'negative'
+        elif any(neu in label for neu in ['NEU', 'NEUTRAL', 'MIXED', 'OBJECTIVE']):
+            return 'neutral'
         
-        for indicator in neutral_indicators:
-            if indicator in label:
-                return 'neutral'
-        
-        # Default classification based on score if available
+        # If we still can't classify, return neutral as fallback
         return 'neutral'
     
     def test_model(self, model_name, test_texts=None):
@@ -271,7 +289,7 @@ class EnhancedSentimentAnalyzer:
         return text.strip()
     
     def process_api_response(self, result, original_text):
-        """Enhanced API response processing"""
+        """Fixed API response processing with better label handling"""
         try:
             # Handle different response formats
             if isinstance(result, list) and len(result) > 0:
@@ -280,30 +298,49 @@ class EnhancedSentimentAnalyzer:
                 else:
                     sentiments = result
                 
-                processed_scores = {}
+                # Debug: Print raw response for troubleshooting
+                if st.session_state.get('debug_mode', False):
+                    st.write("Debug - Raw API Response:", sentiments)
+                
+                processed_scores = {'positive': 0.0, 'negative': 0.0, 'neutral': 0.0}
                 
                 # Process each sentiment score
                 for item in sentiments:
                     if 'label' in item and 'score' in item:
-                        normalized_label = self.normalize_sentiment_labels(item['label'])
+                        raw_label = item['label']
+                        normalized_label = self.normalize_sentiment_labels(raw_label)
                         score = float(item['score'])
                         
-                        # Aggregate scores for the same sentiment
+                        # Debug information
+                        if st.session_state.get('debug_mode', False):
+                            st.write(f"Raw label: {raw_label} -> Normalized: {normalized_label}, Score: {score}")
+                        
+                        # Use the highest score for each sentiment category
                         if normalized_label in processed_scores:
                             processed_scores[normalized_label] = max(processed_scores[normalized_label], score)
-                        else:
-                            processed_scores[normalized_label] = score
                 
-                # Ensure all three sentiments are present
-                for sentiment in ['positive', 'negative', 'neutral']:
-                    if sentiment not in processed_scores:
-                        processed_scores[sentiment] = 0.0
+                # If no scores were assigned, try a different approach
+                if all(score == 0.0 for score in processed_scores.values()):
+                    # Map scores directly without normalization first
+                    for item in sentiments:
+                        if 'label' in item and 'score' in item:
+                            raw_label = item['label'].upper()
+                            score = float(item['score'])
+                            
+                            # Direct mapping based on common patterns
+                            if 'POSITIVE' in raw_label or 'POS' in raw_label or raw_label == 'LABEL_1':
+                                processed_scores['positive'] = score
+                            elif 'NEGATIVE' in raw_label or 'NEG' in raw_label or raw_label == 'LABEL_0':
+                                processed_scores['negative'] = score
+                            elif 'NEUTRAL' in raw_label or raw_label == 'LABEL_2':
+                                processed_scores['neutral'] = score
                 
                 # Normalize scores to sum to 1.0
                 total_score = sum(processed_scores.values())
                 if total_score > 0:
                     processed_scores = {k: v/total_score for k, v in processed_scores.items()}
                 else:
+                    # Fallback: equal distribution
                     processed_scores = {'positive': 0.33, 'negative': 0.33, 'neutral': 0.34}
                 
                 # Determine primary sentiment
@@ -323,6 +360,9 @@ class EnhancedSentimentAnalyzer:
             
         except Exception as e:
             st.error(f"Error processing API response: {str(e)}")
+            if st.session_state.get('debug_mode', False):
+                st.write("Debug - Exception details:", str(e))
+                st.write("Debug - Raw result:", result)
             return None
     
     def enhance_sentiment_detection(self, result):
@@ -331,25 +371,45 @@ class EnhancedSentimentAnalyzer:
         scores = result['scores'].copy()
         
         # Rule-based adjustments for common patterns
-        positive_boosters = ['love', 'excellent', 'amazing', 'fantastic', 'perfect', 'wonderful']
-        negative_boosters = ['hate', 'terrible', 'awful', 'horrible', 'worst', 'disgusting']
+        positive_boosters = ['love', 'excellent', 'amazing', 'fantastic', 'perfect', 'wonderful', 'awesome', 'brilliant', 'outstanding', 'great']
+        negative_boosters = ['hate', 'terrible', 'awful', 'horrible', 'worst', 'disgusting', 'pathetic', 'useless', 'disappointing']
         
         # Count sentiment indicators
         positive_count = sum(1 for word in positive_boosters if word in text)
         negative_count = sum(1 for word in negative_boosters if word in text)
         
         # Adjust scores based on strong indicators
+        boost_factor = 0.15  # Increased boost factor
         if positive_count > negative_count and positive_count > 0:
-            scores['positive'] = min(scores['positive'] + 0.1, 1.0)
+            scores['positive'] = min(scores['positive'] + (boost_factor * positive_count), 0.95)
+            scores['neutral'] = max(scores['neutral'] - (boost_factor * positive_count / 2), 0.05)
         elif negative_count > positive_count and negative_count > 0:
-            scores['negative'] = min(scores['negative'] + 0.1, 1.0)
+            scores['negative'] = min(scores['negative'] + (boost_factor * negative_count), 0.95)
+            scores['neutral'] = max(scores['neutral'] - (boost_factor * negative_count / 2), 0.05)
         
-        # Handle negations
-        negation_pattern = r'\b(not|no|never|neither|nobody|nothing|nowhere|hardly|scarcely|barely)\b'
-        if re.search(negation_pattern, text):
-            # Swap positive and negative if negation is present near sentiment words
+        # Handle exclamation marks (usually indicate strong sentiment)
+        exclamation_count = text.count('!')
+        if exclamation_count > 0:
             if scores['positive'] > scores['negative']:
-                scores['positive'], scores['negative'] = scores['negative'], scores['positive']
+                scores['positive'] = min(scores['positive'] + (0.05 * exclamation_count), 0.95)
+            elif scores['negative'] > scores['positive']:
+                scores['negative'] = min(scores['negative'] + (0.05 * exclamation_count), 0.95)
+        
+        # Handle negations more carefully
+        negation_pattern = r'\b(not|no|never|neither|nobody|nothing|nowhere|hardly|scarcely|barely|don\'t|doesn\'t|didn\'t|won\'t|wouldn\'t|can\'t|couldn\'t)\b'
+        negations = len(re.findall(negation_pattern, text))
+        
+        if negations > 0:
+            # Only swap if there's a clear sentiment difference
+            if abs(scores['positive'] - scores['negative']) > 0.2:
+                if scores['positive'] > scores['negative']:
+                    # Reduce positive, increase negative
+                    scores['negative'] = min(scores['positive'], 0.9)
+                    scores['positive'] = max(scores['negative'] / 2, 0.1)
+                elif scores['negative'] > scores['positive']:
+                    # Reduce negative, increase positive  
+                    scores['positive'] = min(scores['negative'], 0.9)
+                    scores['negative'] = max(scores['positive'] / 2, 0.1)
         
         # Renormalize scores
         total = sum(scores.values())
@@ -366,30 +426,33 @@ class EnhancedSentimentAnalyzer:
         return result
     
     def fallback_sentiment_analysis(self, text):
-        """Simple rule-based fallback sentiment analysis"""
+        """Improved rule-based fallback sentiment analysis"""
         text_lower = text.lower()
         
-        positive_words = ['good', 'great', 'excellent', 'amazing', 'wonderful', 'fantastic', 'love', 'perfect', 'best', 'awesome', 'brilliant', 'outstanding']
-        negative_words = ['bad', 'terrible', 'awful', 'horrible', 'hate', 'worst', 'disappointing', 'poor', 'disgusting', 'pathetic', 'useless']
+        positive_words = ['good', 'great', 'excellent', 'amazing', 'wonderful', 'fantastic', 'love', 'perfect', 'best', 'awesome', 'brilliant', 'outstanding', 'superb', 'marvelous']
+        negative_words = ['bad', 'terrible', 'awful', 'horrible', 'hate', 'worst', 'disappointing', 'poor', 'disgusting', 'pathetic', 'useless', 'annoying', 'frustrating']
         
         positive_score = sum(1 for word in positive_words if word in text_lower)
         negative_score = sum(1 for word in negative_words if word in text_lower)
         
+        # Consider exclamation marks
+        exclamation_boost = text.count('!') * 0.1
+        
         if positive_score > negative_score:
             sentiment = 'positive'
-            confidence = min(0.6 + (positive_score - negative_score) * 0.1, 0.9)
+            confidence = min(0.7 + (positive_score - negative_score) * 0.1 + exclamation_boost, 0.95)
         elif negative_score > positive_score:
             sentiment = 'negative'
-            confidence = min(0.6 + (negative_score - positive_score) * 0.1, 0.9)
+            confidence = min(0.7 + (negative_score - positive_score) * 0.1 + exclamation_boost, 0.95)
         else:
             sentiment = 'neutral'
-            confidence = 0.5
+            confidence = 0.6
         
         # Create normalized scores
         if sentiment == 'positive':
-            scores = {'positive': confidence, 'negative': (1-confidence)/2, 'neutral': (1-confidence)/2}
+            scores = {'positive': confidence, 'negative': (1-confidence)*0.3, 'neutral': (1-confidence)*0.7}
         elif sentiment == 'negative':
-            scores = {'negative': confidence, 'positive': (1-confidence)/2, 'neutral': (1-confidence)/2}
+            scores = {'negative': confidence, 'positive': (1-confidence)*0.3, 'neutral': (1-confidence)*0.7}
         else:
             scores = {'neutral': confidence, 'positive': (1-confidence)/2, 'negative': (1-confidence)/2}
         
@@ -402,15 +465,43 @@ class EnhancedSentimentAnalyzer:
             'warning': 'Using fallback analysis'
         }
     
-    def batch_analyze(self, texts, progress_bar=None):
-        """Enhanced batch analysis with better progress tracking"""
-        results = []
-        total = len(texts)
-        failed_count = 0
-        
-        for i, text in enumerate(texts):
+import re
+import time
+import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+import streamlit as st
+
+def batch_analyze(self, texts, progress_bar=None):
+    """Enhanced batch analysis with better progress tracking and error handling"""
+    if not texts:
+        return []
+    
+    results = []
+    total = len(texts)
+    failed_count = 0
+    
+    # Ensure we have a working model before starting batch processing
+    if not self.find_working_model():
+        st.error("❌ No working model available for batch analysis")
+        return []
+    
+    for i, text in enumerate(texts):
+        try:
             if progress_bar:
-                progress_bar.progress((i + 1) / total, f"Processing {i + 1}/{total} (Failed: {failed_count})")
+                progress_bar.progress(
+                    (i + 1) / total, 
+                    f"Processing {i + 1}/{total} texts (Failed: {failed_count})"
+                )
+            
+            # Skip empty or invalid texts
+            if not text or not isinstance(text, str) or len(text.strip()) == 0:
+                failed_count += 1
+                fallback_result = self.fallback_sentiment_analysis("Empty text")
+                fallback_result['text'] = text or "Empty"
+                fallback_result['warning'] = 'Empty or invalid text'
+                results.append(fallback_result)
+                continue
             
             result = self.analyze_sentiment(text)
             if result:
@@ -419,153 +510,337 @@ class EnhancedSentimentAnalyzer:
                 failed_count += 1
                 # Add a fallback result
                 fallback_result = self.fallback_sentiment_analysis(text)
+                fallback_result['warning'] = 'Analysis failed, using fallback'
                 results.append(fallback_result)
             
-            # Adaptive delay based on API response
-            time.sleep(0.1 if i % 10 != 0 else 0.5)
-        
-        return results
+            # Adaptive delay based on API response and batch position
+            if i % 10 == 0 and i > 0:
+                time.sleep(1.0)  # Longer pause every 10 requests
+            else:
+                time.sleep(0.2)  # Short pause between requests
+                
+        except Exception as e:
+            failed_count += 1
+            st.warning(f"Error processing text {i+1}: {str(e)}")
+            fallback_result = self.fallback_sentiment_analysis(text if text else "Error")
+            fallback_result['warning'] = f'Processing error: {str(e)}'
+            results.append(fallback_result)
+    
+    if progress_bar:
+        progress_bar.progress(1.0, f"Completed! Processed {total} texts (Failed: {failed_count})")
+    
+    return results
 
 def create_enhanced_sentiment_display(result):
-    """Create an enhanced visual display for sentiment results"""
-    sentiment = result['sentiment']
-    confidence = result['confidence']
-    scores = result['scores']
-    
-    # Create confidence visualization
-    confidence_html = f"""
-    <div style="margin: 10px 0;">
-        <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
-            <span><strong>Confidence:</strong></span>
-            <span>{confidence:.1%}</span>
+    """Create an enhanced visual display for sentiment results with better error handling"""
+    try:
+        if not result or not isinstance(result, dict):
+            return "<div>Invalid result data</div>"
+        
+        sentiment = result.get('sentiment', 'unknown')
+        confidence = result.get('confidence', 0.0)
+        scores = result.get('scores', {'positive': 0.33, 'negative': 0.33, 'neutral': 0.34})
+        
+        # Ensure confidence is a valid number
+        try:
+            confidence = float(confidence)
+        except (ValueError, TypeError):
+            confidence = 0.0
+        
+        # Color mapping
+        color_map = {
+            'positive': '#28a745',
+            'negative': '#dc3545',
+            'neutral': '#6c757d',
+            'unknown': '#6c757d'
+        }
+        
+        main_color = color_map.get(sentiment, '#6c757d')
+        
+        # Create confidence visualization
+        confidence_html = f"""
+        <div style="margin: 10px 0; padding: 10px; border: 1px solid #e0e0e0; border-radius: 5px;">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                <span><strong>Confidence:</strong></span>
+                <span style="color: {main_color}; font-weight: bold;">{confidence:.1%}</span>
+            </div>
+            <div style="background-color: #e9ecef; border-radius: 10px; height: 20px; overflow: hidden;">
+                <div style="width: {confidence*100:.1f}%; height: 100%; background-color: {main_color}; border-radius: 10px; transition: width 0.3s ease;"></div>
+            </div>
         </div>
-        <div class="confidence-bar">
-            <div class="confidence-fill" style="width: {confidence*100}%; background-color: {'#28a745' if sentiment == 'positive' else '#dc3545' if sentiment == 'negative' else '#6c757d'};"></div>
-        </div>
-    </div>
-    """
-    
-    # Create score breakdown
-    score_html = "<div style='margin: 10px 0;'><strong>Score Breakdown:</strong><br>"
-    for sent, score in scores.items():
-        color = '#28a745' if sent == 'positive' else '#dc3545' if sent == 'negative' else '#6c757d'
-        score_html += f"<div style='margin: 5px 0; padding: 5px; background-color: {color}20; border-left: 3px solid {color};'>{sent.title()}: {score:.1%}</div>"
-    score_html += "</div>"
-    
-    return confidence_html + score_html
+        """
+        
+        # Create score breakdown
+        score_html = "<div style='margin: 10px 0;'><strong>Score Breakdown:</strong><br>"
+        
+        for sent, score in scores.items():
+            try:
+                score_value = float(score)
+            except (ValueError, TypeError):
+                score_value = 0.0
+                
+            color = color_map.get(sent, '#6c757d')
+            is_primary = sent == sentiment
+            
+            score_html += f"""
+            <div style='margin: 5px 0; padding: 8px; 
+                       background-color: {color}{'30' if is_primary else '15'}; 
+                       border-left: 4px solid {color}; 
+                       border-radius: 3px;
+                       {'font-weight: bold;' if is_primary else ''}'>
+                {sent.title()}: {score_value:.1%}
+            </div>
+            """
+        score_html += "</div>"
+        
+        # Add warning if present
+        warning_html = ""
+        if 'warning' in result:
+            warning_html = f"""
+            <div style='margin: 10px 0; padding: 8px; background-color: #fff3cd; 
+                       border-left: 4px solid #ffc107; border-radius: 3px;'>
+                <small><strong>Note:</strong> {result['warning']}</small>
+            </div>
+            """
+        
+        return confidence_html + score_html + warning_html
+        
+    except Exception as e:
+        return f"<div style='color: red;'>Error displaying result: {str(e)}</div>"
 
 def extract_enhanced_keywords(text, sentiment_result):
-    """Enhanced keyword extraction with better sentiment correlation"""
-    # Expanded keyword lists
-    positive_keywords = [
-        'good', 'great', 'excellent', 'amazing', 'wonderful', 'fantastic', 'love', 'perfect', 'best',
-        'awesome', 'brilliant', 'outstanding', 'superb', 'magnificent', 'incredible', 'fabulous',
-        'terrific', 'marvelous', 'phenomenal', 'exceptional', 'impressive', 'delightful'
-    ]
-    
-    negative_keywords = [
-        'bad', 'terrible', 'awful', 'horrible', 'hate', 'worst', 'disappointing', 'poor',
-        'disgusting', 'pathetic', 'useless', 'dreadful', 'appalling', 'atrocious', 'abysmal',
-        'deplorable', 'horrendous', 'ghastly', 'hideous', 'repulsive', 'revolting'
-    ]
-    
-    neutral_keywords = [
-        'okay', 'fine', 'average', 'normal', 'standard', 'typical', 'regular', 'common',
-        'ordinary', 'moderate', 'adequate', 'acceptable', 'reasonable', 'fair'
-    ]
-    
-    # Extract words from text
-    words = re.findall(r'\b\w+\b', text.lower())
-    found_keywords = []
-    
-    sentiment = sentiment_result['sentiment']
-    
-    # Find relevant keywords based on sentiment
-    if sentiment == 'positive':
-        found_keywords = [word for word in words if word in positive_keywords]
-    elif sentiment == 'negative':
-        found_keywords = [word for word in words if word in negative_keywords]
-    else:
-        found_keywords = [word for word in words if word in neutral_keywords]
-    
-    # Also include cross-sentiment keywords if they appear
-    all_sentiment_words = positive_keywords + negative_keywords + neutral_keywords
-    additional_keywords = [word for word in words if word in all_sentiment_words and word not in found_keywords]
-    
-    # Combine and limit results
-    all_keywords = found_keywords + additional_keywords[:3]
-    return list(set(all_keywords))[:5]
+    """Enhanced keyword extraction with better sentiment correlation and error handling"""
+    try:
+        if not text or not isinstance(text, str):
+            return []
+        
+        # Expanded keyword lists
+        positive_keywords = [
+            'good', 'great', 'excellent', 'amazing', 'wonderful', 'fantastic', 'love', 'perfect', 'best',
+            'awesome', 'brilliant', 'outstanding', 'superb', 'magnificent', 'incredible', 'fabulous',
+            'terrific', 'marvelous', 'phenomenal', 'exceptional', 'impressive', 'delightful', 'splendid',
+            'remarkable', 'extraordinary', 'stunning', 'beautiful', 'gorgeous', 'lovely', 'charming'
+        ]
+        
+        negative_keywords = [
+            'bad', 'terrible', 'awful', 'horrible', 'hate', 'worst', 'disappointing', 'poor',
+            'disgusting', 'pathetic', 'useless', 'dreadful', 'appalling', 'atrocious', 'abysmal',
+            'deplorable', 'horrendous', 'ghastly', 'hideous', 'repulsive', 'revolting', 'nasty',
+            'ugly', 'annoying', 'frustrating', 'irritating', 'disturbing', 'unpleasant'
+        ]
+        
+        neutral_keywords = [
+            'okay', 'fine', 'average', 'normal', 'standard', 'typical', 'regular', 'common',
+            'ordinary', 'moderate', 'adequate', 'acceptable', 'reasonable', 'fair', 'decent',
+            'usual', 'conventional', 'traditional', 'basic', 'simple', 'plain'
+        ]
+        
+        # Extract words from text (improved regex)
+        words = re.findall(r'\b[a-zA-Z]+\b', text.lower())
+        found_keywords = []
+        
+        sentiment = sentiment_result.get('sentiment', 'neutral') if sentiment_result else 'neutral'
+        
+        # Find relevant keywords based on sentiment
+        if sentiment == 'positive':
+            found_keywords = [word for word in words if word in positive_keywords]
+        elif sentiment == 'negative':
+            found_keywords = [word for word in words if word in negative_keywords]
+        else:
+            found_keywords = [word for word in words if word in neutral_keywords]
+        
+        # Also include cross-sentiment keywords if they appear (but limit them)
+        all_sentiment_words = positive_keywords + negative_keywords + neutral_keywords
+        additional_keywords = [word for word in words if word in all_sentiment_words and word not in found_keywords]
+        
+        # Combine and limit results, remove duplicates
+        all_keywords = list(dict.fromkeys(found_keywords + additional_keywords[:3]))  # Preserve order while removing duplicates
+        return all_keywords[:5]  # Return max 5 keywords
+        
+    except Exception as e:
+        st.warning(f"Error extracting keywords: {str(e)}")
+        return []
 
 def create_sentiment_chart(results):
-    """Enhanced sentiment distribution chart"""
-    if not results:
+    """Enhanced sentiment distribution chart with better error handling"""
+    try:
+        if not results or not isinstance(results, list):
+            return None
+        
+        sentiment_counts = {'positive': 0, 'negative': 0, 'neutral': 0}
+        total_confidence = {'positive': 0, 'negative': 0, 'neutral': 0}
+        
+        # Count sentiments and accumulate confidence scores
+        for result in results:
+            if isinstance(result, dict) and 'sentiment' in result:
+                sentiment = result.get('sentiment', 'neutral')
+                if sentiment in sentiment_counts:
+                    sentiment_counts[sentiment] += 1
+                    confidence = result.get('confidence', 0)
+                    try:
+                        total_confidence[sentiment] += float(confidence)
+                    except (ValueError, TypeError):
+                        pass
+        
+        # Check if we have any data
+        if sum(sentiment_counts.values()) == 0:
+            return None
+        
+        # Calculate average confidence per sentiment
+        avg_confidence = {}
+        for sentiment in sentiment_counts:
+            if sentiment_counts[sentiment] > 0:
+                avg_confidence[sentiment] = total_confidence[sentiment] / sentiment_counts[sentiment]
+            else:
+                avg_confidence[sentiment] = 0
+        
+        # Create enhanced pie chart
+        fig = px.pie(
+            values=list(sentiment_counts.values()),
+            names=list(sentiment_counts.keys()),
+            title="Sentiment Distribution",
+            color_discrete_map={
+                'positive': '#28a745',
+                'negative': '#dc3545',
+                'neutral': '#6c757d'
+            },
+            hole=0.4  # Donut chart for better visual appeal
+        )
+        
+        # Enhanced hover template with confidence info
+        fig.update_traces(
+            textposition='inside',
+            textinfo='percent+label',
+            hovertemplate='<b>%{label}</b><br>' +
+                         'Count: %{value}<br>' +
+                         'Percentage: %{percent}<br>' +
+                         'Avg Confidence: ' + 
+                         '<extra></extra>'
+        )
+        
+        # Update layout
+        fig.update_layout(
+            showlegend=True,
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+            font=dict(size=12),
+            title_font_size=16
+        )
+        
+        return fig
+        
+    except Exception as e:
+        st.error(f"Error creating sentiment chart: {str(e)}")
         return None
-    
-    sentiment_counts = {'positive': 0, 'negative': 0, 'neutral': 0}
-    
-    for result in results:
-        sentiment_counts[result['sentiment']] += 1
-    
-    # Create a more detailed pie chart
-    fig = px.pie(
-        values=list(sentiment_counts.values()),
-        names=list(sentiment_counts.keys()),
-        title="Sentiment Distribution",
-        color_discrete_map={
-            'positive': '#28a745',
-            'negative': '#dc3545',
-            'neutral': '#6c757d'
-        },
-        hole=0.3  # Donut chart for better visual appeal
-    )
-    
-    # Add percentage labels
-    fig.update_traces(
-        textposition='inside',
-        textinfo='percent+label',
-        hovertemplate='<b>%{label}</b><br>Count: %{value}<br>Percentage: %{percent}<extra></extra>'
-    )
-    
-    return fig
 
 def create_confidence_chart(results):
-    """Enhanced confidence score visualization"""
-    if not results:
+    """Enhanced confidence score visualization with better error handling"""
+    try:
+        if not results or not isinstance(results, list):
+            return None
+        
+        # Prepare data for visualization
+        confidence_data = []
+        
+        for i, result in enumerate(results):
+            if isinstance(result, dict):
+                try:
+                    confidence = float(result.get('confidence', 0))
+                    sentiment = result.get('sentiment', 'unknown')
+                    model = result.get('model', 'unknown')
+                    
+                    confidence_data.append({
+                        'confidence': confidence,
+                        'sentiment': sentiment,
+                        'model': model,
+                        'index': i + 1
+                    })
+                except (ValueError, TypeError):
+                    continue
+        
+        if not confidence_data:
+            return None
+        
+        df = pd.DataFrame(confidence_data)
+        
+        # Create box plot for confidence distribution by sentiment
+        fig = px.box(
+            df,
+            x='sentiment',
+            y='confidence',
+            color='sentiment',
+            title="Confidence Score Distribution by Sentiment",
+            color_discrete_map={
+                'positive': '#28a745',
+                'negative': '#dc3545',
+                'neutral': '#6c757d',
+                'unknown': '#6c757d'
+            },
+            points="outliers"  # Show outlier points
+        )
+        
+        # Add mean line
+        for sentiment in df['sentiment'].unique():
+            sentiment_data = df[df['sentiment'] == sentiment]
+            mean_confidence = sentiment_data['confidence'].mean()
+            
+            fig.add_hline(
+                y=mean_confidence,
+                line_dash="dash",
+                line_color="red",
+                opacity=0.7,
+                annotation_text=f"Mean: {mean_confidence:.2f}"
+            )
+        
+        fig.update_layout(
+            xaxis_title="Sentiment",
+            yaxis_title="Confidence Score",
+            showlegend=False,
+            yaxis=dict(range=[0, 1]),  # Set y-axis range from 0 to 1
+            font=dict(size=12),
+            title_font_size=16
+        )
+        
+        return fig
+        
+    except Exception as e:
+        st.error(f"Error creating confidence chart: {str(e)}")
         return None
-    
-    # Create a more detailed confidence analysis
-    confidence_data = []
-    
-    for result in results:
-        confidence_data.append({
-            'confidence': result['confidence'],
-            'sentiment': result['sentiment'],
-            'model': result.get('model', 'unknown')
-        })
-    
-    df = pd.DataFrame(confidence_data)
-    
-    # Create box plot for confidence distribution by sentiment
-    fig = px.box(
-        df,
-        x='sentiment',
-        y='confidence',
-        color='sentiment',
-        title="Confidence Score Distribution by Sentiment",
-        color_discrete_map={
-            'positive': '#28a745',
-            'negative': '#dc3545',
-            'neutral': '#6c757d'
-        }
-    )
-    
-    fig.update_layout(
-        xaxis_title="Sentiment",
-        yaxis_title="Confidence Score",
-        showlegend=False
-    )
-    
-    return fig
+
+def create_detailed_results_table(results):
+    """Create a detailed table view of all results"""
+    try:
+        if not results or not isinstance(results, list):
+            return None
+        
+        # Prepare data for table
+        table_data = []
+        
+        for i, result in enumerate(results):
+            if isinstance(result, dict):
+                text = result.get('text', '')[:100]  # Truncate long text
+                if len(result.get('text', '')) > 100:
+                    text += "..."
+                
+                table_data.append({
+                    'Index': i + 1,
+                    'Text': text,
+                    'Sentiment': result.get('sentiment', 'unknown').title(),
+                    'Confidence': f"{result.get('confidence', 0):.1%}",
+                    'Positive': f"{result.get('scores', {}).get('positive', 0):.1%}",
+                    'Negative': f"{result.get('scores', {}).get('negative', 0):.1%}",
+                    'Neutral': f"{result.get('scores', {}).get('neutral', 0):.1%}",
+                    'Model': result.get('model', 'unknown'),
+                    'Warning': result.get('warning', '')
+                })
+        
+        if table_data:
+            return pd.DataFrame(table_data)
+        
+        return None
+        
+    except Exception as e:
+        st.error(f"Error creating results table: {str(e)}")
+        return None
 
 def export_results(results, format_type):
     """Enhanced export functionality with more details"""
