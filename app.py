@@ -1645,32 +1645,6 @@ MODEL USAGE:
     st.markdown("---")
     st.markdown("### 💡 Tips for Better Sentiment Analysis")
     
-    tip_col1, tip_col2, tip_col3 = st.columns(3)
-    
-    with tip_col1:
-        st.markdown("""
-        **Text Quality:**
-        - Use clear, complete sentences
-        - Avoid excessive punctuation
-        - Check for typos and grammar
-        """)
-    
-    with tip_col2:
-        st.markdown("""
-        **Confidence Interpretation:**
-        - >80%: High confidence
-        - 60-80%: Medium confidence  
-        - <60%: Low confidence
-        """)
-    
-    with tip_col3:
-        st.markdown("""
-        **Best Practices:**
-        - Analyze similar text types together
-        - Review low-confidence results
-        - Use batch processing for efficiency
-        """)
-    
     st.markdown("**Built with Streamlit and Hugging Face API** | [Model Documentation](https://huggingface.co/cardiffnlp/twitter-roberta-base-sentiment-latest)")
 
 if __name__ == "__main__":
