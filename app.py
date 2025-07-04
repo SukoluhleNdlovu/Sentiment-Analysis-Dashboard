@@ -88,29 +88,65 @@ class SentimentAnalyzer:
         return False
 
     def analyze_sentiment(self, text):
-        """Analyze sentiment of text"""
-        if not self.find_working_model():
-            return self.fallback_analysis(text)
-
-        text = re.sub(r"\s+", " ", text.strip())[:500]
-
+        """Analyze sentiment of long text by chunking and averaging scores."""
         try:
-            response = requests.post(
-                self.api_url, headers=self.headers, json={"inputs": text}, timeout=15
-            )
+            if not self.find_working_model() or not self.api_url:
+                st.warning("Falling back to rule-based analysis (API not available).")
+                return self.fallback_analysis(text)
 
-            if response.status_code == 200:
-                result = response.json()
-                return self.process_response(result, text)
-            elif response.status_code == 503:
-                st.warning("Model loading, please wait...")
-                time.sleep(2)
-                return self.analyze_sentiment(text)
+            text = re.sub(r"\s+", " ", text.strip())
+            max_chunk_length = 400  # Safe sub-512 tokens for API
+            chunks = [text[i:i+max_chunk_length] for i in range(0, len(text), max_chunk_length)]
+
+            aggregate_scores = {"positive": 0.0, "negative": 0.0, "neutral": 0.0}
+            count = 0
+
+            for chunk in chunks:
+                response = requests.post(
+                    self.api_url,
+                    headers=self.headers,
+                    json={"inputs": chunk},
+                    timeout=20
+                )
+
+                if response.status_code == 200:
+                    result = response.json()
+                    processed = self.process_response(result, chunk)
+                    if processed and "scores" in processed:
+                        for k in aggregate_scores:
+                            aggregate_scores[k] += processed["scores"].get(k, 0.0)
+                        count += 1
+                    else:
+                        st.warning("Unexpected API response structure, using fallback for this chunk.")
+                        fallback = self.fallback_analysis(chunk)
+                        for k in aggregate_scores:
+                            aggregate_scores[k] += fallback["scores"].get(k, 0.0)
+                        count += 1
+                elif response.status_code == 503:
+                    st.warning("Model is loading on Hugging Face, retrying after a pause...")
+                    time.sleep(5)
+                    return self.analyze_sentiment(text)
+                else:
+                    st.error(f"API Error {response.status_code}: {response.text}")
+                    return self.fallback_analysis(text)
+
+            if count > 0:
+                avg_scores = {k: v / count for k, v in aggregate_scores.items()}
+                primary_sentiment = max(avg_scores, key=avg_scores.get)
+                confidence = avg_scores[primary_sentiment]
+                return {
+                    "text": text[:500] + "..." if len(text) > 500 else text,
+                    "sentiment": primary_sentiment,
+                    "confidence": confidence,
+                    "scores": avg_scores,
+                    "model": self.current_model,
+                }
             else:
+                st.warning("No chunks processed, using fallback.")
                 return self.fallback_analysis(text)
 
         except Exception as e:
-            st.error(f"Error: {str(e)}")
+            st.error(f"Exception during sentiment analysis: {str(e)}")
             return self.fallback_analysis(text)
 
     def process_response(self, result, original_text):
