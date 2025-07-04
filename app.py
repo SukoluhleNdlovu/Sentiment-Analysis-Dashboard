@@ -310,7 +310,7 @@ def export_results(results, format_type):
         return "\n".join(output)
 
 def main():
-    st.markdown('<h1 class="main-header">📊 Enhanced Sentiment Analysis Dashboard</h1>', unsafe_allow_html=True)
+    st.markdown('<h1 class="main-header">Enhanced Sentiment Analysis Dashboard</h1>', unsafe_allow_html=True)
     
     # Sidebar
     st.sidebar.header("🔧 Configuration")
@@ -328,7 +328,7 @@ def main():
         st.session_state.results = []
     
     # Main tabs
-    tab1, tab2, tab3, tab4 = st.tabs(["📝 Single Analysis", "📁 Batch Analysis", "📊 Analytics", "📥 Export"])
+    tab1, tab2, tab3, tab4 = st.tabs(["Single Analysis", "Batch Analysis", "Analytics", "Export"])
     
     with tab1:
         st.header("Single Text Analysis")
@@ -533,7 +533,7 @@ Amazing customer support!"""
                 }[export_format]
                 
                 st.download_button(
-                    label=f"📥 Download {export_format}",
+                    label=f"Download {export_format}",
                     data=exported_data,
                     file_name=f"sentiment_results_{timestamp}.{file_extension}",
                     mime=mime_type
