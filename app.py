@@ -109,36 +109,50 @@ class SentimentAnalyzer:
             st.error(f"Error: {str(e)}")
             return self.fallback_analysis(text)
     
-    def process_response(self, result, original_text):
-        """Process API response"""
-        try:
-            if isinstance(result, list) and len(result) > 0:
-                sentiments = result[0] if isinstance(result[0], list) else result
-                
-                scores = {'positive': 0.0, 'negative': 0.0, 'neutral': 0.0}
-                
-                for item in sentiments:
-                    if 'label' in item and 'score' in item:
-                        normalized = self.normalize_sentiment(item['label'])
-                        scores[normalized] = max(scores[normalized], float(item['score']))
-                
-                # Normalize scores
-                total = sum(scores.values())
-                if total > 0:
-                    scores = {k: v/total for k, v in scores.items()}
-                
+def process_response(self, result, original_text):
+    """Process API response with improved neutral detection"""
+    try:
+        if isinstance(result, list) and len(result) > 0:
+            sentiments = result[0] if isinstance(result[0], list) else result
+
+            scores = {'positive': 0.0, 'negative': 0.0, 'neutral': 0.0}
+
+            for item in sentiments:
+                if 'label' in item and 'score' in item:
+                    normalized = self.normalize_sentiment(item['label'])
+                    scores[normalized] = max(scores[normalized], float(item['score']))
+
+            # Normalize scores
+            total = sum(scores.values())
+            if total > 0:
+                scores = {k: v / total for k, v in scores.items()}
+
+            # Neutral detection adjustment
+            neutral_threshold = 0.05  # adjustable sensitivity
+
+            # If neutral score is zero but positive and negative are close
+            if scores['neutral'] == 0.0:
+                if abs(scores['positive'] - scores['negative']) <= neutral_threshold:
+                    primary_sentiment = 'neutral'
+                    avg_score = (scores['positive'] + scores['negative']) / 2
+                    scores['neutral'] = avg_score
+                    scores['positive'] = avg_score / 2
+                    scores['negative'] = avg_score / 2
+                else:
+                    primary_sentiment = max(scores.keys(), key=lambda k: scores[k])
+            else:
                 primary_sentiment = max(scores.keys(), key=lambda k: scores[k])
-                
-                return {
-                    'text': original_text,
-                    'sentiment': primary_sentiment,
-                    'confidence': scores[primary_sentiment],
-                    'scores': scores,
-                    'model': self.current_model
-                }
-            return None
-        except Exception as e:
-            return self.fallback_analysis(original_text)
+
+            return {
+                'text': original_text,
+                'sentiment': primary_sentiment,
+                'confidence': scores[primary_sentiment],
+                'scores': scores,
+                'model': self.current_model
+            }
+        return None
+    except Exception as e:
+        return self.fallback_analysis(original_text)
     
     def fallback_analysis(self, text):
         """Simple rule-based fallback with proper neutral detection"""
