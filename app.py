@@ -12,6 +12,7 @@ from datetime import datetime
 import re
 import numpy as np
 
+
 # Page configuration
 st.set_page_config(
     page_title="Enhanced Sentiment Analysis Dashboard",
@@ -45,8 +46,10 @@ class SentimentAnalyzer:
     def __init__(self, api_key):
         self.api_key = api_key
         self.headers = {"Authorization": f"Bearer {api_key}"}
+        # Updated models with better neutral detection
         self.models = [
             "cardiffnlp/twitter-roberta-base-sentiment-latest",
+            "nlptown/bert-base-multilingual-uncased-sentiment",
             "siebert/sentiment-roberta-large-english",
             "distilbert-base-uncased-finetuned-sst-2-english"
         ]
@@ -54,13 +57,18 @@ class SentimentAnalyzer:
         self.api_url = None
     
     def normalize_sentiment(self, label):
-        """Normalize sentiment labels to standard format"""
+        """Enhanced sentiment normalization with better neutral detection"""
         label = label.upper().strip()
-        if any(pos in label for pos in ['POSITIVE', 'POS', 'LABEL_1', '1']):
+        
+        # Handle different label formats
+        if any(pos in label for pos in ['POSITIVE', 'POS', 'LABEL_2', '2']):
             return 'positive'
         elif any(neg in label for neg in ['NEGATIVE', 'NEG', 'LABEL_0', '0']):
             return 'negative'
+        elif any(neu in label for neu in ['NEUTRAL', 'NEU', 'LABEL_1', '1']):
+            return 'neutral'
         else:
+            # Default to neutral for unknown labels
             return 'neutral'
     
     def find_working_model(self):
@@ -72,22 +80,25 @@ class SentimentAnalyzer:
             try:
                 api_url = f"https://api-inference.huggingface.co/models/{model}"
                 response = requests.post(api_url, headers=self.headers, 
-                                       json={"inputs": "test"}, timeout=10)
+                                       json={"inputs": "This is a test"}, timeout=10)
                 
                 if response.status_code == 200:
-                    self.current_model = model
-                    self.api_url = api_url
-                    return True
+                    result = response.json()
+                    # Check if the model returns proper sentiment results
+                    if isinstance(result, list) and len(result) > 0:
+                        self.current_model = model
+                        self.api_url = api_url
+                        return True
             except:
                 continue
         return False
     
     def analyze_sentiment(self, text):
-        """Analyze sentiment of text"""
+        """Enhanced sentiment analysis with better neutral detection"""
         if not self.find_working_model():
             return self.fallback_analysis(text)
         
-        # Clean text
+        # Clean and prepare text
         text = re.sub(r'\s+', ' ', text.strip())[:500]
         
         try:
@@ -109,59 +120,37 @@ class SentimentAnalyzer:
             return self.fallback_analysis(text)
     
     def process_response(self, result, original_text):
-        """Process API response - FIXED for neutral classification"""
+        """Enhanced response processing with better neutral detection"""
         try:
             if isinstance(result, list) and len(result) > 0:
                 sentiments = result[0] if isinstance(result[0], list) else result
                 
+                # Initialize scores
                 scores = {'positive': 0.0, 'negative': 0.0, 'neutral': 0.0}
                 
-                # FIXED: Don't use max() - use the actual scores from the model
+                # Process sentiment scores
                 for item in sentiments:
                     if 'label' in item and 'score' in item:
                         normalized = self.normalize_sentiment(item['label'])
-                        scores[normalized] = float(item['score'])  # Use actual score, not max
+                        scores[normalized] = max(scores[normalized], float(item['score']))
                 
-                # FIXED: Handle case where model only returns 2 classes (pos/neg)
-                if scores['neutral'] == 0.0:
-                    # If we have both positive and negative scores
-                    if scores['positive'] > 0 and scores['negative'] > 0:
-                        # The model already gave us the distribution, don't modify
-                        pass
-                    elif scores['positive'] > 0 and scores['negative'] == 0:
-                        # Model only returned positive, calculate negative and neutral
-                        scores['negative'] = 1.0 - scores['positive']
-                        # If positive confidence is low, it's likely neutral
-                        if scores['positive'] < 0.7:
-                            scores['neutral'] = scores['negative'] * 0.8
-                            scores['negative'] = scores['negative'] * 0.2
-                    elif scores['negative'] > 0 and scores['positive'] == 0:
-                        # Model only returned negative, calculate positive and neutral
-                        scores['positive'] = 1.0 - scores['negative']
-                        # If negative confidence is low, it's likely neutral
-                        if scores['negative'] < 0.7:
-                            scores['neutral'] = scores['positive'] * 0.8
-                            scores['positive'] = scores['positive'] * 0.2
+                # If no neutral score was found, calculate it
+                if scores['neutral'] == 0.0 and (scores['positive'] > 0 or scores['negative'] > 0):
+                    # Calculate neutral as the remaining probability
+                    total_polar = scores['positive'] + scores['negative']
+                    if total_polar < 1.0:
+                        scores['neutral'] = 1.0 - total_polar
                 
-                # FIXED: Normalize scores to sum to 1
+                # Normalize scores to sum to 1
                 total = sum(scores.values())
                 if total > 0:
                     scores = {k: v/total for k, v in scores.items()}
-                
-                # FIXED: Better neutral detection - if all scores are close, it's neutral
-                sorted_scores = sorted(scores.items(), key=lambda x: x[1], reverse=True)
-                highest_score = sorted_scores[0][1]
-                
-                # If highest score is less than 0.6, it's likely neutral
-                if highest_score < 0.6:
-                    primary_sentiment = 'neutral'
-                    scores['neutral'] = max(scores['neutral'], 0.4)
-                    # Redistribute remaining scores
-                    remaining = 1.0 - scores['neutral']
-                    scores['positive'] = remaining * 0.5
-                    scores['negative'] = remaining * 0.5
                 else:
-                    primary_sentiment = max(scores.keys(), key=lambda k: scores[k])
+                    # If all scores are 0, default to neutral
+                    scores = {'positive': 0.0, 'negative': 0.0, 'neutral': 1.0}
+                
+                # Determine primary sentiment with neutral threshold
+                primary_sentiment = self.determine_primary_sentiment(scores)
                 
                 return {
                     'text': original_text,
@@ -170,42 +159,112 @@ class SentimentAnalyzer:
                     'scores': scores,
                     'model': self.current_model
                 }
-            return None
+            return self.fallback_analysis(original_text)
         except Exception as e:
             return self.fallback_analysis(original_text)
     
+    def determine_primary_sentiment(self, scores):
+        """Determine primary sentiment with neutral threshold"""
+        # Define thresholds for neutral detection
+        NEUTRAL_THRESHOLD = 0.4  # If neutral score is above this, consider neutral
+        CONFIDENCE_THRESHOLD = 0.6  # If max polar sentiment is below this, consider neutral
+        
+        max_sentiment = max(scores.keys(), key=lambda k: scores[k])
+        
+        # If neutral has highest score and above threshold
+        if max_sentiment == 'neutral' and scores['neutral'] >= NEUTRAL_THRESHOLD:
+            return 'neutral'
+        
+        # If the difference between positive and negative is small, consider neutral
+        pos_neg_diff = abs(scores['positive'] - scores['negative'])
+        if pos_neg_diff < 0.1 and scores['neutral'] >= 0.3:
+            return 'neutral'
+        
+        # If max polar sentiment is below confidence threshold, consider neutral
+        max_polar_score = max(scores['positive'], scores['negative'])
+        if max_polar_score < CONFIDENCE_THRESHOLD and scores['neutral'] >= 0.25:
+            return 'neutral'
+        
+        return max_sentiment
+    
     def fallback_analysis(self, text):
-        """Simple rule-based fallback"""
-        positive_words = ['good', 'great', 'excellent', 'amazing', 'love', 'perfect', 'awesome']
-        negative_words = ['bad', 'terrible', 'awful', 'hate', 'worst', 'horrible', 'disgusting']
+        """Enhanced rule-based fallback with better neutral detection"""
+        # Expanded word lists
+        positive_words = [
+            'good', 'great', 'excellent', 'amazing', 'love', 'perfect', 'awesome',
+            'fantastic', 'wonderful', 'outstanding', 'brilliant', 'superb', 'marvelous',
+            'delighted', 'pleased', 'happy', 'satisfied', 'impressed', 'recommend'
+        ]
+        
+        negative_words = [
+            'bad', 'terrible', 'awful', 'hate', 'worst', 'horrible', 'disgusting',
+            'disappointing', 'frustrated', 'annoying', 'useless', 'pathetic', 'dreadful',
+            'unacceptable', 'regret', 'disappointed', 'complaint', 'problem', 'issues'
+        ]
+        
+        neutral_words = [
+            'okay', 'ok', 'fine', 'average', 'normal', 'standard', 'typical',
+            'regular', 'moderate', 'decent', 'acceptable', 'fair', 'adequate',
+            'reasonable', 'nothing', 'whatever', 'maybe', 'perhaps', 'probably'
+        ]
         
         text_lower = text.lower()
+        
+        # Count sentiment indicators
         pos_count = sum(1 for word in positive_words if word in text_lower)
         neg_count = sum(1 for word in negative_words if word in text_lower)
+        neu_count = sum(1 for word in neutral_words if word in text_lower)
         
-        if pos_count > neg_count:
+        # Enhanced neutral detection
+        total_words = len(text_lower.split())
+        sentiment_word_ratio = (pos_count + neg_count + neu_count) / max(total_words, 1)
+        
+        # Determine sentiment
+        if neu_count > 0 and (pos_count == 0 and neg_count == 0):
+            # Explicitly neutral words with no polar sentiment
+            sentiment = 'neutral'
+            confidence = min(0.7, 0.5 + neu_count * 0.1)
+        elif pos_count == 0 and neg_count == 0 and neu_count == 0:
+            # No sentiment indicators - likely neutral
+            sentiment = 'neutral'
+            confidence = 0.6
+        elif sentiment_word_ratio < 0.1:
+            # Very few sentiment words relative to text length
+            sentiment = 'neutral'
+            confidence = 0.55
+        elif pos_count > neg_count and pos_count > neu_count:
             sentiment = 'positive'
-            confidence = min(0.6 + (pos_count - neg_count) * 0.1, 0.9)
-        elif neg_count > pos_count:
+            confidence = min(0.8, 0.6 + (pos_count - max(neg_count, neu_count)) * 0.1)
+        elif neg_count > pos_count and neg_count > neu_count:
             sentiment = 'negative'
-            confidence = min(0.6 + (neg_count - pos_count) * 0.1, 0.9)
+            confidence = min(0.8, 0.6 + (neg_count - max(pos_count, neu_count)) * 0.1)
         else:
+            # Equal or mixed sentiment
             sentiment = 'neutral'
             confidence = 0.5
         
-        scores = {sentiment: confidence}
-        for s in ['positive', 'negative', 'neutral']:
-            if s not in scores:
-                scores[s] = (1 - confidence) / 2
+        # Create balanced scores
+        if sentiment == 'neutral':
+            scores = {
+                'neutral': confidence,
+                'positive': (1 - confidence) * 0.4,
+                'negative': (1 - confidence) * 0.6
+            }
+        else:
+            scores = {
+                sentiment: confidence,
+                'neutral': (1 - confidence) * 0.6,
+                ('positive' if sentiment == 'negative' else 'negative'): (1 - confidence) * 0.4
+            }
         
         return {
             'text': text,
             'sentiment': sentiment,
             'confidence': confidence,
             'scores': scores,
-            'model': 'fallback'
+            'model': 'enhanced_fallback'
         }
-    
+
     def batch_analyze(self, texts):
         """Analyze multiple texts"""
         results = []
@@ -234,7 +293,7 @@ def create_sentiment_display(result):
     </div>
     """
     
-    scores_html = "<div style='margin: 10px 0;'><strong>Scores:</strong><br>"
+    scores_html = "<div style='margin: 10px 0;'><strong>Detailed Scores:</strong><br>"
     for sentiment, score in result['scores'].items():
         color = '#28a745' if sentiment == 'positive' else '#dc3545' if sentiment == 'negative' else '#6c757d'
         scores_html += f"<div style='margin: 5px 0; padding: 5px; background-color: {color}20; border-left: 3px solid {color};'>{sentiment.title()}: {score:.1%}</div>"
@@ -305,12 +364,15 @@ def export_results(results, format_type):
             output.append(f"Text: {r['text']}")
             output.append(f"Sentiment: {r['sentiment'].title()}")
             output.append(f"Confidence: {r['confidence']:.3f}")
+            output.append(f"Positive: {r['scores']['positive']:.3f}")
+            output.append(f"Negative: {r['scores']['negative']:.3f}")
+            output.append(f"Neutral: {r['scores']['neutral']:.3f}")
             output.append(f"Model: {r['model']}")
             output.append("-" * 50)
         return "\n".join(output)
 
 def main():
-    st.markdown('<h1 class="main-header">Enhanced Sentiment Analysis Dashboard</h1>', unsafe_allow_html=True)
+    st.markdown('<h1 class="main-header">📊 Enhanced Sentiment Analysis Dashboard</h1>', unsafe_allow_html=True)
     
     # Sidebar
     st.sidebar.header("🔧 Configuration")
@@ -328,7 +390,7 @@ def main():
         st.session_state.results = []
     
     # Main tabs
-    tab1, tab2, tab3, tab4 = st.tabs(["Single Analysis", "Batch Analysis", "Analytics", "Export"])
+    tab1, tab2, tab3, tab4 = st.tabs(["📝 Single Analysis", "📁 Batch Analysis", "📊 Analytics", "📥 Export"])
     
     with tab1:
         st.header("Single Text Analysis")
@@ -339,17 +401,20 @@ def main():
         if input_method == "Direct Input":
             user_text = st.text_area("Enter text:", height=150)
             
-            # Example buttons
-            col1, col2, col3 = st.columns(3)
+            # Enhanced example buttons
+            col1, col2, col3, col4 = st.columns(4)
             with col1:
                 if st.button("Positive Example"):
-                    user_text = "I love this product! It's amazing!"
+                    user_text = "I absolutely love this product! It's fantastic and exceeded my expectations!"
             with col2:
                 if st.button("Negative Example"):
-                    user_text = "This is terrible. I hate it!"
+                    user_text = "This is completely terrible. I hate it and want my money back!"
             with col3:
                 if st.button("Neutral Example"):
-                    user_text = "The product is okay, nothing special."
+                    user_text = "The product is okay, nothing special. It works as expected."
+            with col4:
+                if st.button("Mixed Example"):
+                    user_text = "The product has some good features but also some issues. It's average overall."
             
             if st.button("Analyze", type="primary") and user_text.strip():
                 with st.spinner("Analyzing..."):
@@ -359,26 +424,28 @@ def main():
                         col1, col2 = st.columns([2, 1])
                         
                         with col1:
-                            # Display sentiment
+                            # Display sentiment with enhanced styling
                             sentiment_class = f"sentiment-{result['sentiment']}"
                             st.markdown(f'<div class="metric-card"><h3>Sentiment</h3><p class="{sentiment_class}">{result["sentiment"].title()}</p></div>', unsafe_allow_html=True)
                             
-                            # Display details
+                            # Display detailed information
                             st.markdown(create_sentiment_display(result), unsafe_allow_html=True)
                             st.info(f"Model: {result['model']}")
                         
                         with col2:
-                            # Chart
+                            # Enhanced chart with all scores
                             scores_df = pd.DataFrame([result['scores']]).T
                             fig = px.bar(
                                 x=scores_df.index, y=scores_df[0],
                                 color=scores_df.index,
+                                title="Sentiment Scores",
                                 color_discrete_map={
                                     'positive': '#28a745',
                                     'negative': '#dc3545',
                                     'neutral': '#6c757d'
                                 }
                             )
+                            fig.update_layout(showlegend=False)
                             st.plotly_chart(fig, use_container_width=True)
                         
                         st.session_state.results.append(result)
@@ -409,11 +476,14 @@ def main():
         if batch_method == "Multiple Texts":
             batch_text = st.text_area("Enter texts (one per line):", height=200)
             
-            if st.button("Example Batch"):
-                batch_text = """I love this product!
-This is terrible quality.
-The service was okay.
-Amazing customer support!"""
+            if st.button("Enhanced Example Batch"):
+                batch_text = """I absolutely love this product! It's amazing!
+This is completely terrible. I hate it so much.
+The product is okay, nothing special really.
+It works fine, meets basic requirements.
+Outstanding quality and excellent service!
+Very disappointed with this purchase.
+Average product, does what it's supposed to do."""
             
             if st.button("Analyze Batch", type="primary") and batch_text.strip():
                 texts = [t.strip() for t in batch_text.split('\n') if t.strip()]
@@ -423,25 +493,30 @@ Amazing customer support!"""
                 if batch_results:
                     st.success(f"Analyzed {len(batch_results)} texts!")
                     
-                    # Summary
+                    # Enhanced summary
                     positive = sum(1 for r in batch_results if r['sentiment'] == 'positive')
                     negative = sum(1 for r in batch_results if r['sentiment'] == 'negative')
                     neutral = sum(1 for r in batch_results if r['sentiment'] == 'neutral')
                     
-                    col1, col2, col3 = st.columns(3)
+                    col1, col2, col3, col4 = st.columns(4)
                     with col1:
-                        st.metric("Positive", positive)
+                        st.metric("Total", len(batch_results))
                     with col2:
-                        st.metric("Negative", negative)
+                        st.metric("Positive", positive, f"{positive/len(batch_results)*100:.1f}%")
                     with col3:
-                        st.metric("Neutral", neutral)
+                        st.metric("Negative", negative, f"{negative/len(batch_results)*100:.1f}%")
+                    with col4:
+                        st.metric("Neutral", neutral, f"{neutral/len(batch_results)*100:.1f}%")
                     
-                    # Individual results
+                    # Individual results with enhanced display
                     for i, result in enumerate(batch_results):
                         with st.expander(f"Text {i+1}: {result['sentiment'].title()} ({result['confidence']:.1%})"):
                             st.write(f"**Text:** {result['text']}")
                             st.write(f"**Sentiment:** {result['sentiment'].title()}")
                             st.write(f"**Confidence:** {result['confidence']:.1%}")
+                            st.write(f"**Positive:** {result['scores']['positive']:.1%}")
+                            st.write(f"**Negative:** {result['scores']['negative']:.1%}")
+                            st.write(f"**Neutral:** {result['scores']['neutral']:.1%}")
                     
                     st.session_state.results.extend(batch_results)
         
@@ -461,11 +536,14 @@ Amazing customer support!"""
                     if batch_results:
                         st.success(f"Analyzed {len(batch_results)} texts!")
                         
-                        # Create results DataFrame
+                        # Create enhanced results DataFrame
                         results_df = pd.DataFrame([{
                             'text': r['text'][:100] + '...' if len(r['text']) > 100 else r['text'],
                             'sentiment': r['sentiment'],
-                            'confidence': r['confidence']
+                            'confidence': f"{r['confidence']:.1%}",
+                            'positive': f"{r['scores']['positive']:.1%}",
+                            'negative': f"{r['scores']['negative']:.1%}",
+                            'neutral': f"{r['scores']['neutral']:.1%}"
                         } for r in batch_results])
                         
                         st.dataframe(results_df)
@@ -475,14 +553,14 @@ Amazing customer support!"""
         st.header("Analytics")
         
         if st.session_state.results:
-            # Summary metrics
+            # Enhanced summary metrics
             total = len(st.session_state.results)
             positive = sum(1 for r in st.session_state.results if r['sentiment'] == 'positive')
             negative = sum(1 for r in st.session_state.results if r['sentiment'] == 'negative')
             neutral = sum(1 for r in st.session_state.results if r['sentiment'] == 'neutral')
             avg_confidence = sum(r['confidence'] for r in st.session_state.results) / total
             
-            col1, col2, col3, col4 = st.columns(4)
+            col1, col2, col3, col4, col5 = st.columns(5)
             with col1:
                 st.metric("Total", total)
             with col2:
@@ -490,7 +568,9 @@ Amazing customer support!"""
             with col3:
                 st.metric("Negative", negative, f"{negative/total*100:.1f}%")
             with col4:
-                st.metric("Avg Confidence", f"{avg_confidence:.3f}")
+                st.metric("Neutral", neutral, f"{neutral/total*100:.1f}%")
+            with col5:
+                st.metric("Avg Confidence", f"{avg_confidence:.1%}")
             
             # Charts
             pie_chart, confidence_chart = create_charts(st.session_state.results)
@@ -501,12 +581,15 @@ Amazing customer support!"""
             with col2:
                 st.plotly_chart(confidence_chart, use_container_width=True)
             
-            # Detailed results
+            # Enhanced detailed results
             st.subheader("Detailed Results")
             results_df = pd.DataFrame([{
                 'Text': r['text'][:100] + '...' if len(r['text']) > 100 else r['text'],
                 'Sentiment': r['sentiment'].title(),
                 'Confidence': f"{r['confidence']:.1%}",
+                'Positive': f"{r['scores']['positive']:.1%}",
+                'Negative': f"{r['scores']['negative']:.1%}",
+                'Neutral': f"{r['scores']['neutral']:.1%}",
                 'Model': r['model']
             } for r in st.session_state.results])
             
@@ -533,7 +616,7 @@ Amazing customer support!"""
                 }[export_format]
                 
                 st.download_button(
-                    label=f"Download {export_format}",
+                    label=f"📥 Download {export_format}",
                     data=exported_data,
                     file_name=f"sentiment_results_{timestamp}.{file_extension}",
                     mime=mime_type
