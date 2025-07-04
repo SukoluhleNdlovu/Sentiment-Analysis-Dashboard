@@ -401,20 +401,41 @@ def main():
         if input_method == "Direct Input":
             user_text = st.text_area("Enter text:", height=150)
             
-            # Enhanced example buttons
+            # Enhanced example buttons with clear sentiment indicators
+            st.subheader("Try These Examples:")
             col1, col2, col3, col4 = st.columns(4)
             with col1:
-                if st.button("Positive Example"):
+                if st.button("✅ Positive Example"):
                     user_text = "I absolutely love this product! It's fantastic and exceeded my expectations!"
+                    st.success("Loaded positive example")
             with col2:
-                if st.button("Negative Example"):
+                if st.button("❌ Negative Example"):
                     user_text = "This is completely terrible. I hate it and want my money back!"
+                    st.error("Loaded negative example")
             with col3:
-                if st.button("Neutral Example"):
+                if st.button("⚪ Neutral Example"):
                     user_text = "The product is okay, nothing special. It works as expected."
+                    st.info("Loaded neutral example")
             with col4:
-                if st.button("Mixed Example"):
+                if st.button("🔄 Mixed Example"):
                     user_text = "The product has some good features but also some issues. It's average overall."
+                    st.warning("Loaded mixed sentiment example")
+            
+            # Additional neutral examples
+            st.subheader("More Neutral Examples:")
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                if st.button("📄 Factual Text"):
+                    user_text = "The meeting is scheduled for 3 PM today. Please bring your reports."
+                    st.info("Loaded factual neutral example")
+            with col2:
+                if st.button("📊 Descriptive Text"):
+                    user_text = "The product measures 10 inches in length and weighs 2 pounds. It comes in blue and red."
+                    st.info("Loaded descriptive neutral example")
+            with col3:
+                if st.button("🤔 Indifferent Text"):
+                    user_text = "I guess it's fine. Nothing really stands out about it. It's just there."
+                    st.info("Loaded indifferent neutral example")
             
             if st.button("Analyze", type="primary") and user_text.strip():
                 with st.spinner("Analyzing..."):
@@ -476,14 +497,39 @@ def main():
         if batch_method == "Multiple Texts":
             batch_text = st.text_area("Enter texts (one per line):", height=200)
             
-            if st.button("Enhanced Example Batch"):
-                batch_text = """I absolutely love this product! It's amazing!
+            st.subheader("Sample Batch Data:")
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("📝 Comprehensive Test Batch"):
+                    batch_text = """I absolutely love this product! It's amazing!
 This is completely terrible. I hate it so much.
 The product is okay, nothing special really.
 It works fine, meets basic requirements.
 Outstanding quality and excellent service!
 Very disappointed with this purchase.
-Average product, does what it's supposed to do."""
+Average product, does what it's supposed to do.
+The meeting is at 3 PM tomorrow.
+This costs $50 and comes in red or blue.
+I'm not sure how I feel about this.
+It's neither good nor bad, just exists.
+Fantastic! Best purchase ever made!
+Absolutely awful experience, never again.
+Standard quality, meets expectations."""
+                    st.success("Loaded comprehensive test batch (14 texts)")
+            
+            with col2:
+                if st.button("⚪ Neutral-Focused Batch"):
+                    batch_text = """The product is available in three colors.
+It measures 15 inches and weighs 3 pounds.
+The manual contains 50 pages of instructions.
+Delivery is scheduled for next Tuesday.
+The item is made of plastic and metal.
+It's okay, nothing particularly special.
+Works as described in the documentation.
+Average quality, meets basic requirements.
+The price is reasonable for what you get.
+Standard features, nothing extraordinary."""
+                    st.info("Loaded neutral-focused batch (10 texts)")
             
             if st.button("Analyze Batch", type="primary") and batch_text.strip():
                 texts = [t.strip() for t in batch_text.split('\n') if t.strip()]
@@ -493,30 +539,55 @@ Average product, does what it's supposed to do."""
                 if batch_results:
                     st.success(f"Analyzed {len(batch_results)} texts!")
                     
-                    # Enhanced summary
+                    # Enhanced summary with sentiment breakdown
+                    st.subheader("📊 Sentiment Analysis Summary")
                     positive = sum(1 for r in batch_results if r['sentiment'] == 'positive')
                     negative = sum(1 for r in batch_results if r['sentiment'] == 'negative')
                     neutral = sum(1 for r in batch_results if r['sentiment'] == 'neutral')
+                    total = len(batch_results)
                     
                     col1, col2, col3, col4 = st.columns(4)
                     with col1:
-                        st.metric("Total", len(batch_results))
+                        st.metric("📝 Total Analyzed", total)
                     with col2:
-                        st.metric("Positive", positive, f"{positive/len(batch_results)*100:.1f}%")
+                        st.metric("✅ Positive", positive, f"{positive/total*100:.1f}%")
                     with col3:
-                        st.metric("Negative", negative, f"{negative/len(batch_results)*100:.1f}%")
+                        st.metric("❌ Negative", negative, f"{negative/total*100:.1f}%")
                     with col4:
-                        st.metric("Neutral", neutral, f"{neutral/len(batch_results)*100:.1f}%")
+                        st.metric("⚪ Neutral", neutral, f"{neutral/total*100:.1f}%")
                     
-                    # Individual results with enhanced display
-                    for i, result in enumerate(batch_results):
-                        with st.expander(f"Text {i+1}: {result['sentiment'].title()} ({result['confidence']:.1%})"):
-                            st.write(f"**Text:** {result['text']}")
-                            st.write(f"**Sentiment:** {result['sentiment'].title()}")
-                            st.write(f"**Confidence:** {result['confidence']:.1%}")
-                            st.write(f"**Positive:** {result['scores']['positive']:.1%}")
-                            st.write(f"**Negative:** {result['scores']['negative']:.1%}")
-                            st.write(f"**Neutral:** {result['scores']['neutral']:.1%}")
+                    # Visual sentiment breakdown
+                    st.subheader("🎯 Detailed Results by Sentiment")
+                    
+                    # Separate results by sentiment
+                    positive_results = [r for r in batch_results if r['sentiment'] == 'positive']
+                    negative_results = [r for r in batch_results if r['sentiment'] == 'negative']
+                    neutral_results = [r for r in batch_results if r['sentiment'] == 'neutral']
+                    
+                    # Display each sentiment category
+                    if positive_results:
+                        with st.expander(f"✅ Positive Results ({len(positive_results)} texts)", expanded=True):
+                            for i, result in enumerate(positive_results):
+                                st.write(f"**{i+1}.** {result['text']}")
+                                st.write(f"   - Confidence: {result['confidence']:.1%}")
+                                st.write(f"   - Scores: Pos({result['scores']['positive']:.1%}), Neg({result['scores']['negative']:.1%}), Neu({result['scores']['neutral']:.1%})")
+                                st.write("---")
+                    
+                    if negative_results:
+                        with st.expander(f"❌ Negative Results ({len(negative_results)} texts)", expanded=True):
+                            for i, result in enumerate(negative_results):
+                                st.write(f"**{i+1}.** {result['text']}")
+                                st.write(f"   - Confidence: {result['confidence']:.1%}")
+                                st.write(f"   - Scores: Pos({result['scores']['positive']:.1%}), Neg({result['scores']['negative']:.1%}), Neu({result['scores']['neutral']:.1%})")
+                                st.write("---")
+                    
+                    if neutral_results:
+                        with st.expander(f"⚪ Neutral Results ({len(neutral_results)} texts)", expanded=True):
+                            for i, result in enumerate(neutral_results):
+                                st.write(f"**{i+1}.** {result['text']}")
+                                st.write(f"   - Confidence: {result['confidence']:.1%}")
+                                st.write(f"   - Scores: Pos({result['scores']['positive']:.1%}), Neg({result['scores']['negative']:.1%}), Neu({result['scores']['neutral']:.1%})")
+                                st.write("---")
                     
                     st.session_state.results.extend(batch_results)
         
@@ -534,19 +605,37 @@ Average product, does what it's supposed to do."""
                     batch_results = analyzer.batch_analyze(texts)
                     
                     if batch_results:
-                        st.success(f"Analyzed {len(batch_results)} texts!")
+                        st.success(f"Analyzed {len(batch_results)} texts from CSV!")
                         
-                        # Create enhanced results DataFrame
+                        # Enhanced CSV results summary
+                        positive = sum(1 for r in batch_results if r['sentiment'] == 'positive')
+                        negative = sum(1 for r in batch_results if r['sentiment'] == 'negative')
+                        neutral = sum(1 for r in batch_results if r['sentiment'] == 'neutral')
+                        total = len(batch_results)
+                        
+                        st.subheader("📊 CSV Analysis Summary")
+                        col1, col2, col3, col4 = st.columns(4)
+                        with col1:
+                            st.metric("📝 Total", total)
+                        with col2:
+                            st.metric("✅ Positive", positive, f"{positive/total*100:.1f}%")
+                        with col3:
+                            st.metric("❌ Negative", negative, f"{negative/total*100:.1f}%")
+                        with col4:
+                            st.metric("⚪ Neutral", neutral, f"{neutral/total*100:.1f}%")
+                        
+                        # Create enhanced results DataFrame with sentiment indicators
                         results_df = pd.DataFrame([{
-                            'text': r['text'][:100] + '...' if len(r['text']) > 100 else r['text'],
-                            'sentiment': r['sentiment'],
-                            'confidence': f"{r['confidence']:.1%}",
-                            'positive': f"{r['scores']['positive']:.1%}",
-                            'negative': f"{r['scores']['negative']:.1%}",
-                            'neutral': f"{r['scores']['neutral']:.1%}"
+                            'Text': r['text'][:100] + '...' if len(r['text']) > 100 else r['text'],
+                            'Sentiment': f"{'✅' if r['sentiment'] == 'positive' else '❌' if r['sentiment'] == 'negative' else '⚪'} {r['sentiment'].title()}",
+                            'Confidence': f"{r['confidence']:.1%}",
+                            'Positive': f"{r['scores']['positive']:.1%}",
+                            'Negative': f"{r['scores']['negative']:.1%}",
+                            'Neutral': f"{r['scores']['neutral']:.1%}"
                         } for r in batch_results])
                         
-                        st.dataframe(results_df)
+                        st.subheader("📋 Detailed Results")
+                        st.dataframe(results_df, use_container_width=True)
                         st.session_state.results.extend(batch_results)
     
     with tab3:
@@ -581,19 +670,54 @@ Average product, does what it's supposed to do."""
             with col2:
                 st.plotly_chart(confidence_chart, use_container_width=True)
             
-            # Enhanced detailed results
-            st.subheader("Detailed Results")
-            results_df = pd.DataFrame([{
-                'Text': r['text'][:100] + '...' if len(r['text']) > 100 else r['text'],
-                'Sentiment': r['sentiment'].title(),
-                'Confidence': f"{r['confidence']:.1%}",
-                'Positive': f"{r['scores']['positive']:.1%}",
-                'Negative': f"{r['scores']['negative']:.1%}",
-                'Neutral': f"{r['scores']['neutral']:.1%}",
-                'Model': r['model']
-            } for r in st.session_state.results])
+            # Enhanced detailed results with sentiment filtering
+            st.subheader("📋 Detailed Results")
             
-            st.dataframe(results_df)
+            # Add filter options
+            col1, col2 = st.columns([1, 2])
+            with col1:
+                sentiment_filter = st.selectbox(
+                    "Filter by sentiment:",
+                    ["All", "Positive", "Negative", "Neutral"]
+                )
+            with col2:
+                sort_by = st.selectbox(
+                    "Sort by:",
+                    ["Confidence (High to Low)", "Confidence (Low to High)", "Sentiment"]
+                )
+            
+            # Filter results
+            filtered_results = st.session_state.results
+            if sentiment_filter != "All":
+                filtered_results = [r for r in filtered_results if r['sentiment'] == sentiment_filter.lower()]
+            
+            # Sort results
+            if sort_by == "Confidence (High to Low)":
+                filtered_results = sorted(filtered_results, key=lambda x: x['confidence'], reverse=True)
+            elif sort_by == "Confidence (Low to High)":
+                filtered_results = sorted(filtered_results, key=lambda x: x['confidence'])
+            elif sort_by == "Sentiment":
+                filtered_results = sorted(filtered_results, key=lambda x: x['sentiment'])
+            
+            # Display filtered and sorted results
+            if filtered_results:
+                results_df = pd.DataFrame([{
+                    'Text': r['text'][:100] + '...' if len(r['text']) > 100 else r['text'],
+                    'Sentiment': f"{'✅' if r['sentiment'] == 'positive' else '❌' if r['sentiment'] == 'negative' else '⚪'} {r['sentiment'].title()}",
+                    'Confidence': f"{r['confidence']:.1%}",
+                    'Positive': f"{r['scores']['positive']:.1%}",
+                    'Negative': f"{r['scores']['negative']:.1%}",
+                    'Neutral': f"{r['scores']['neutral']:.1%}",
+                    'Model': r['model']
+                } for r in filtered_results])
+                
+                st.dataframe(results_df, use_container_width=True)
+                
+                # Show summary of filtered results
+                if sentiment_filter != "All":
+                    st.info(f"Showing {len(filtered_results)} {sentiment_filter.lower()} results out of {len(st.session_state.results)} total results")
+            else:
+                st.info(f"No {sentiment_filter.lower()} results found.")
         
         else:
             st.info("No results yet. Analyze some texts first!")
