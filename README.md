@@ -28,3 +28,14 @@ A comprehensive, interactive web application for analyzing sentiment in text dat
 ```bash
 git clone <your-repo-url>
 cd sentiment-dashboard
+
+Step 2: Install Dependencies
+CopyEditpip install -r requirements.txt
+
+Step 3: Run the Application
+CopyEditstreamlit run app.py
+
+Step 4: Access the Dashboard
+Open your browser and navigate to:
+arduinoCopyEdithttp://localhost:8501
+ 
