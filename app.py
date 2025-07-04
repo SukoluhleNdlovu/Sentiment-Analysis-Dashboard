@@ -12,6 +12,7 @@ from datetime import datetime
 import re
 import numpy as np
 
+
 # Page configuration
 st.set_page_config(
     page_title="Enhanced Sentiment Analysis Dashboard",
@@ -109,59 +110,24 @@ class SentimentAnalyzer:
             return self.fallback_analysis(text)
     
     def process_response(self, result, original_text):
-        """Process API response - FIXED for neutral classification"""
+        """Process API response"""
         try:
             if isinstance(result, list) and len(result) > 0:
                 sentiments = result[0] if isinstance(result[0], list) else result
                 
                 scores = {'positive': 0.0, 'negative': 0.0, 'neutral': 0.0}
                 
-                # FIXED: Don't use max() - use the actual scores from the model
                 for item in sentiments:
                     if 'label' in item and 'score' in item:
                         normalized = self.normalize_sentiment(item['label'])
-                        scores[normalized] = float(item['score'])  # Use actual score, not max
+                        scores[normalized] = max(scores[normalized], float(item['score']))
                 
-                # FIXED: Handle case where model only returns 2 classes (pos/neg)
-                if scores['neutral'] == 0.0:
-                    # If we have both positive and negative scores
-                    if scores['positive'] > 0 and scores['negative'] > 0:
-                        # The model already gave us the distribution, don't modify
-                        pass
-                    elif scores['positive'] > 0 and scores['negative'] == 0:
-                        # Model only returned positive, calculate negative and neutral
-                        scores['negative'] = 1.0 - scores['positive']
-                        # If positive confidence is low, it's likely neutral
-                        if scores['positive'] < 0.7:
-                            scores['neutral'] = scores['negative'] * 0.8
-                            scores['negative'] = scores['negative'] * 0.2
-                    elif scores['negative'] > 0 and scores['positive'] == 0:
-                        # Model only returned negative, calculate positive and neutral
-                        scores['positive'] = 1.0 - scores['negative']
-                        # If negative confidence is low, it's likely neutral
-                        if scores['negative'] < 0.7:
-                            scores['neutral'] = scores['positive'] * 0.8
-                            scores['positive'] = scores['positive'] * 0.2
-                
-                # FIXED: Normalize scores to sum to 1
+                # Normalize scores
                 total = sum(scores.values())
                 if total > 0:
                     scores = {k: v/total for k, v in scores.items()}
                 
-                # FIXED: Better neutral detection - if all scores are close, it's neutral
-                sorted_scores = sorted(scores.items(), key=lambda x: x[1], reverse=True)
-                highest_score = sorted_scores[0][1]
-                
-                # If highest score is less than 0.6, it's likely neutral
-                if highest_score < 0.6:
-                    primary_sentiment = 'neutral'
-                    scores['neutral'] = max(scores['neutral'], 0.4)
-                    # Redistribute remaining scores
-                    remaining = 1.0 - scores['neutral']
-                    scores['positive'] = remaining * 0.5
-                    scores['negative'] = remaining * 0.5
-                else:
-                    primary_sentiment = max(scores.keys(), key=lambda k: scores[k])
+                primary_sentiment = max(scores.keys(), key=lambda k: scores[k])
                 
                 return {
                     'text': original_text,
@@ -175,7 +141,7 @@ class SentimentAnalyzer:
             return self.fallback_analysis(original_text)
     
     def fallback_analysis(self, text):
-        """Simple rule-based fallback"""
+        """Simple rule-based fallback with proper neutral detection"""
         positive_words = ['good', 'great', 'excellent', 'amazing', 'love', 'perfect', 'awesome']
         negative_words = ['bad', 'terrible', 'awful', 'hate', 'worst', 'horrible', 'disgusting']
         
@@ -183,15 +149,19 @@ class SentimentAnalyzer:
         pos_count = sum(1 for word in positive_words if word in text_lower)
         neg_count = sum(1 for word in negative_words if word in text_lower)
         
-        if pos_count > neg_count:
-            sentiment = 'positive'
-            confidence = min(0.6 + (pos_count - neg_count) * 0.1, 0.9)
-        elif neg_count > pos_count:
-            sentiment = 'negative'
-            confidence = min(0.6 + (neg_count - pos_count) * 0.1, 0.9)
-        else:
+        if pos_count == 0 and neg_count == 0:
             sentiment = 'neutral'
             confidence = 0.5
+        else:
+            if pos_count > neg_count:
+                sentiment = 'positive'
+                confidence = min(0.6 + (pos_count - neg_count) * 0.1, 0.9)
+            elif neg_count > pos_count:
+                sentiment = 'negative'
+                confidence = min(0.6 + (neg_count - pos_count) * 0.1, 0.9)
+            else:
+                sentiment = 'neutral'
+                confidence = 0.5
         
         scores = {sentiment: confidence}
         for s in ['positive', 'negative', 'neutral']:
@@ -205,7 +175,7 @@ class SentimentAnalyzer:
             'scores': scores,
             'model': 'fallback'
         }
-    
+
     def batch_analyze(self, texts):
         """Analyze multiple texts"""
         results = []
@@ -310,7 +280,7 @@ def export_results(results, format_type):
         return "\n".join(output)
 
 def main():
-    st.markdown('<h1 class="main-header">Enhanced Sentiment Analysis Dashboard</h1>', unsafe_allow_html=True)
+    st.markdown('<h1 class="main-header">📊 Enhanced Sentiment Analysis Dashboard</h1>', unsafe_allow_html=True)
     
     # Sidebar
     st.sidebar.header("🔧 Configuration")
@@ -328,7 +298,7 @@ def main():
         st.session_state.results = []
     
     # Main tabs
-    tab1, tab2, tab3, tab4 = st.tabs(["Single Analysis", "Batch Analysis", "Analytics", "Export"])
+    tab1, tab2, tab3, tab4 = st.tabs(["📝 Single Analysis", "📁 Batch Analysis", "📊 Analytics", "📥 Export"])
     
     with tab1:
         st.header("Single Text Analysis")
@@ -533,7 +503,7 @@ Amazing customer support!"""
                 }[export_format]
                 
                 st.download_button(
-                    label=f"Download {export_format}",
+                    label=f"📥 Download {export_format}",
                     data=exported_data,
                     file_name=f"sentiment_results_{timestamp}.{file_extension}",
                     mime=mime_type
